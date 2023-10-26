@@ -1,0 +1,117 @@
+; Check the basic block sections labels option
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels | FileCheck %s --check-prefixes=CHECK,BASIC,WO-BRP
+
+;; Also verify this holds for all PGO features enabled
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-bb-addr-map=func-entry-count,bb-freq,br-prob | FileCheck %s --check-prefixes=CHECK,PGO,PGO-ALL,PGO-FEC,PGO-BBF,PGO-BRP,W-BRP
+
+;; Also verify that pgo extension only includes the enabled feature
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-bb-addr-map=func-entry-count | FileCheck %s --check-prefixes=CHECK,PGO,PGO-FEC,FEC-ONLY,WO-BRP
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-bb-addr-map=bb-freq | FileCheck %s --check-prefixes=CHECK,PGO,PGO-BBF,BBF-ONLY,WO-BRP
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-bb-addr-map=br-prob | FileCheck %s --check-prefixes=CHECK,PGO,PGO-BRP,BRP-ONLY,W-BRP
+
+
+define void @_Z3bazb(i1 zeroext, i1 zeroext) personality ptr @__gxx_personality_v0 {
+  br i1 %0, label %3, label %8
+
+3:
+  %4 = invoke i32 @_Z3barv()
+          to label %8 unwind label %6
+  br label %10
+
+6:
+  landingpad { ptr, i32 }
+          catch ptr null
+  br label %12
+
+8:
+  %9 = call i32 @_Z3foov()
+  br i1 %1, label %12, label %10
+
+10:
+  %11 = select i1 %1, ptr blockaddress(@_Z3bazb, %3), ptr blockaddress(@_Z3bazb, %12) ; <ptr> [#uses=1]
+  indirectbr ptr %11, [label %3, label %12]
+
+12:
+  ret void
+}
+
+declare i32 @_Z3barv() #1
+
+declare i32 @_Z3foov() #1
+
+declare i32 @__gxx_personality_v0(...)
+
+; CHECK:	.section .text._Z3bazb,"ax",@progbits{{$}}
+; CHECK-LABEL:	_Z3bazb:
+; CHECK-LABEL:	.Lfunc_begin0:
+; CHECK-LABEL:	.LBB_END0_0:
+; CHECK-LABEL:	.LBB0_1:
+; CHECK-LABEL:	.LBB_END0_1:
+; CHECK-LABEL:	.LBB0_2:
+; CHECK-LABEL:	.LBB_END0_2:
+; CHECK-LABEL:	.LBB0_3:
+; CHECK-LABEL:	.LBB_END0_3:
+; CHECK-LABEL:	.Lfunc_end0:
+
+; BASIC: 	.section	.llvm_bb_addr_map,"o",@llvm_bb_addr_map,.text._Z3bazb{{$}}
+; PGO:	      	.section	.llvm_pgo_bb_addr_map,"o",@llvm_pgo_bb_addr_map,.text._Z3bazb{{$}}
+; CHECK-NEXT:   .byte   2		# version
+; BASIC-NEXT:   .byte   0		# feature
+; PGO-ALL-NEXT:	.byte   7		# feature
+; FEC-ONLY-NEXT:.byte   1		# feature
+; BBF-ONLY-NEXT:.byte   2		# feature
+; BRP-ONLY-NEXT:.byte   4		# feature
+; CHECK-NEXT:	.quad	.Lfunc_begin0	# function address
+; CHECK-NEXT:	.byte	6		# number of basic blocks
+; PGO-FEC-NEXT:	.byte   0               # function entry count
+; CHECK-NEXT:   .byte	0		# BB id
+; CHECK-NEXT:	.uleb128 .Lfunc_begin0-.Lfunc_begin0
+; CHECK-NEXT:	.uleb128 .LBB_END0_0-.Lfunc_begin0
+; WO-BRP-NEXT:	.byte	8
+; W-BRP-NEXT:	.byte   72
+; PGO-BBF-NEXT: .{{.*}} {{.*}}          # basic block frequency
+; PGO-BRP-NEXT:	.byte   1               # successor BB ID
+; PGO-BRP-NEXT:	.ascii  "\200\200\200\200\004"  # successor branch probability
+; PGO-BRP-NEXT:	.byte   3               # successor BB ID
+; PGO-BRP-NEXT:	.ascii  "\200\200\200\200\004"  # successor branch probability
+; CHECK-NEXT:   .byte	1		# BB id
+; CHECK-NEXT:	.uleb128 .LBB0_1-.LBB_END0_0
+; CHECK-NEXT:	.uleb128 .LBB_END0_1-.LBB0_1
+; WO-BRP-NEXT:	.byte	8
+; W-BRP-NEXT:	.byte   72
+; PGO-BBF-NEXT: .{{.*}} {{.*}}          # basic block frequency
+; PGO-BRP-NEXT:	.byte   3		# successor BB ID
+; PGO-BRP-NEXT:	.ascii  "\200\360\377\377\007"  # successor branch probability
+; PGO-BRP-NEXT:	.byte   2		# successor BB ID
+; PGO-BRP-NEXT:	.ascii  "\200\020"	# successor branch probability
+; CHECK-NEXT:   .byte	3		# BB id
+; CHECK-NEXT:	.uleb128 .LBB0_2-.LBB_END0_1
+; CHECK-NEXT:	.uleb128 .LBB_END0_2-.LBB0_2
+; WO-BRP-NEXT:	.byte	8
+; W-BRP-NEXT:	.byte   72
+; PGO-BBF-NEXT: .{{.*}} {{.*}}          # basic block frequency
+; PGO-BRP-NEXT:	.byte   5		# successor BB ID
+; PGO-BRP-NEXT:	.ascii  "\200\200\200 "	# successor branch probability
+; PGO-BRP-NEXT:	.byte   4		# successor BB ID
+; PGO-BRP-NEXT:	.ascii  "\200\200\200\340\007"	# successor branch probability
+; CHECK-NEXT:   .byte	4		# BB id
+; CHECK-NEXT:	.uleb128 .LBB0_3-.LBB_END0_2
+; CHECK-NEXT:	.uleb128 .LBB_END0_3-.LBB0_3
+; WO-BRP-NEXT:	.byte	16
+; W-BRP-NEXT:	.byte   80
+; PGO-BBF-NEXT: .{{.*}} {{.*}}          # basic block frequency
+; PGO-BRP-NEXT:	.byte   1		# successor BB ID
+; PGO-BRP-NEXT:	.ascii	"\200\200\200\340\007"	# successor branch probability
+; PGO-BRP-NEXT:	.byte   5		# successor BB ID
+; PGO-BRP-NEXT:	.ascii  "\200\200\200 "	# successor branch probability
+; CHECK-NEXT:   .byte	5		# BB id
+; CHECK-NEXT:	.uleb128 .LBB0_4-.LBB_END0_3
+; CHECK-NEXT:	.uleb128 .LBB_END0_4-.LBB0_4
+; CHECK-NEXT:	.byte	1
+; PGO-BBF-NEXT: .{{.*}} {{.*}}          # basic block frequency
+; CHECK-NEXT:   .byte	2		# BB id
+; CHECK-NEXT:	.uleb128 .LBB0_5-.LBB_END0_4
+; CHECK-NEXT:	.uleb128 .LBB_END0_5-.LBB0_5
+; CHECK-NEXT:	.byte	5
+; PGO-BBF-NEXT: .{{.*}} {{.*}}          # basic block frequency
+
