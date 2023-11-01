@@ -19,6 +19,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/YAMLTraits.h"
 #include <optional>
+#include <vector>
 
 using namespace llvm;
 
@@ -98,8 +99,13 @@ class ELFDumper {
   dumpStackSizesSection(const Elf_Shdr *Shdr);
   Expected<ELFYAML::BBAddrMapSection *>
   dumpBBAddrMapSection(const Elf_Shdr *Shdr);
+  Expected<ELFYAML::PGOBBAddrMapSection *>
+  dumpPGOBBAddrMapSection(const Elf_Shdr *Shdr);
   Expected<ELFYAML::RawContentSection *>
   dumpPlaceholderSection(const Elf_Shdr *Shdr);
+
+  template <typename SectionType>
+  Expected<SectionType *> dumpBBAddrMapSectionImpl(const Elf_Shdr *Shdr);
 
   bool shouldPrintSection(const ELFYAML::Section &S, const Elf_Shdr &SHdr,
                           std::optional<DWARFYAML::Data> DWARF);
@@ -630,6 +636,8 @@ ELFDumper<ELFT>::dumpSections() {
     case ELF::SHT_LLVM_BB_ADDR_MAP_V0:
     case ELF::SHT_LLVM_BB_ADDR_MAP:
       return [this](const Elf_Shdr *S) { return dumpBBAddrMapSection(S); };
+    case ELF::SHT_LLVM_PGO_BB_ADDR_MAP:
+      return [this](const Elf_Shdr *S) { return dumpPGOBBAddrMapSection(S); };
     case ELF::SHT_STRTAB:
     case ELF::SHT_SYMTAB:
     case ELF::SHT_DYNSYM:
@@ -873,10 +881,124 @@ ELFDumper<ELFT>::dumpStackSizesSection(const Elf_Shdr *Shdr) {
   return S.release();
 }
 
+namespace {
+template <typename ELFT, typename SectionType> struct AddrMapDumpTrait;
+
+template <typename ELFT>
+struct AddrMapDumpTrait<ELFT, ELFYAML::BBAddrMapSection> {
+  using EntryType = ELFYAML::BBAddrMapEntry;
+  using BBEntryType = ELFYAML::BBAddrMapEntry::BBEntry;
+
+  // No extra data necessary so it is empty
+  struct EntryExtraData {};
+
+  DataExtractor &Data;
+  DataExtractor::Cursor &Cur;
+  unsigned SectionTy;
+
+  AddrMapDumpTrait(DataExtractor &Data, DataExtractor::Cursor &Cur,
+                   unsigned SectionTy = ELF::SHT_LLVM_BB_ADDR_MAP)
+      : Data(Data), Cur(Cur), SectionTy(SectionTy) {}
+
+  EntryExtraData getEntryExtraData(uint8_t) const { return {}; }
+
+  EntryType makeEntry(EntryExtraData, ELFYAML::BBAddrMapCommonBase CB,
+                      std::vector<BBEntryType> Entries) const {
+    return EntryType{CB, std::move(Entries)};
+  }
+
+  Expected<BBEntryType> makeBBEntry(uint8_t Version, uint8_t,
+                                    uint64_t BlockIndex) {
+    uint32_t ID = Version >= 2 ? Data.getULEB128(Cur) : BlockIndex;
+    uint64_t Offset = Data.getULEB128(Cur);
+    uint64_t Size = Data.getULEB128(Cur);
+    uint64_t Metadata = Data.getULEB128(Cur);
+    return BBEntryType{ID, Offset, Size, Metadata};
+  }
+};
+
+template <typename ELFT>
+struct AddrMapDumpTrait<ELFT, ELFYAML::PGOBBAddrMapSection> {
+private:
+  using PGOBBAddrMap = object::PGOBBAddrMap;
+
+public:
+  using EntryType = ELFYAML::PGOBBAddrMapEntry;
+  using BBEntryType = ELFYAML::PGOBBAddrMapEntry::BBEntry;
+
+  struct EntryExtraData {
+    std::optional<uint64_t> FuncEntryCount;
+  };
+
+  static constexpr unsigned SectionTy = ELF::SHT_LLVM_PGO_BB_ADDR_MAP;
+
+  DataExtractor &Data;
+  DataExtractor::Cursor &Cur;
+  AddrMapDumpTrait<ELFT, ELFYAML::BBAddrMapSection> BaseTrait;
+
+  AddrMapDumpTrait(DataExtractor &Data, DataExtractor::Cursor &Cur)
+      : Data(Data), Cur(Cur), BaseTrait(Data, Cur, SectionTy) {}
+
+  // Extract extra data for function entry count if necessary
+  EntryExtraData getEntryExtraData(uint8_t Feature) {
+    return {Feature & uint8_t(PGOBBAddrMap::Features::FuncEntryCnt)
+                ? std::make_optional(Data.getULEB128(Cur))
+                : std::nullopt};
+  }
+
+  // Compose entries, common base, and extra data
+  EntryType makeEntry(EntryExtraData ED, ELFYAML::BBAddrMapCommonBase CB,
+                      std::vector<BBEntryType> Entries) const {
+    return EntryType{CB, ED.FuncEntryCount, std::move(Entries)};
+  }
+
+  // Extract extra data for block frequency and branch probability if
+  // necessary
+  Expected<BBEntryType> makeBBEntry(uint8_t Version, uint8_t Feature,
+                                    uint64_t BlockIndex) {
+    auto EntryOrErr = BaseTrait.makeBBEntry(Version, Feature, BlockIndex);
+    if (Error Err = EntryOrErr.takeError())
+      return std::move(Err);
+    ELFYAML::BBAddrMapEntry::BBEntry E = *EntryOrErr;
+
+    // Extract block frequency when enabled
+    std::optional<uint64_t> BBF =
+        Feature & uint8_t(PGOBBAddrMap::Features::BBFreq)
+            ? std::make_optional(Data.getULEB128(Cur))
+            : std::nullopt;
+
+    // Extract branch probability when enabled
+    std::optional<
+        std::vector<ELFYAML::PGOBBAddrMapEntry::BBEntry::SuccessorEntry>>
+        Succs;
+    if (Feature & uint8_t(PGOBBAddrMap::Features::BrProb)) {
+      auto DecodeOrErr =
+          PGOBBAddrMap::BBEntry::decodeMD(static_cast<uint32_t>(E.Metadata));
+      if (Error E = DecodeOrErr.takeError())
+        return std::move(E);
+      auto SuccsType = DecodeOrErr->second;
+      auto SuccCount =
+          SuccsType == PGOBBAddrMap::BBEntry::SuccessorsType::Multiple
+              ? Data.getULEB128(Cur)
+              : uint64_t(SuccsType);
+      Succs.emplace();
+      Succs->reserve(SuccCount);
+      for (uint64_t I = 0; I < SuccCount; ++I) {
+        uint32_t BBID = Data.getULEB128(Cur);
+        uint32_t BrProb = Data.getULEB128(Cur);
+        Succs->push_back({BBID, BrProb});
+      }
+    }
+    return BBEntryType{E, BBF, Succs};
+  }
+};
+} // namespace
+
 template <class ELFT>
-Expected<ELFYAML::BBAddrMapSection *>
-ELFDumper<ELFT>::dumpBBAddrMapSection(const Elf_Shdr *Shdr) {
-  auto S = std::make_unique<ELFYAML::BBAddrMapSection>();
+template <typename SectionType>
+Expected<SectionType *> ELFDumper<ELFT>::dumpBBAddrMapSectionImpl(
+    const Elf_Shdr *Shdr) {
+  auto S = std::make_unique<SectionType>();
   if (Error E = dumpCommonSection(Shdr, *S))
     return std::move(E);
 
@@ -889,13 +1011,16 @@ ELFDumper<ELFT>::dumpBBAddrMapSection(const Elf_Shdr *Shdr) {
     return S.release();
 
   DataExtractor Data(Content, Obj.isLE(), ELFT::Is64Bits ? 8 : 4);
-
-  std::vector<ELFYAML::BBAddrMapEntry> Entries;
   DataExtractor::Cursor Cur(0);
+
+  using DumpTrait = AddrMapDumpTrait<ELFT, SectionType>;
+  DumpTrait DT(Data, Cur);
+
+  std::vector<typename DumpTrait::EntryType> Entries;
   uint8_t Version = 0;
   uint8_t Feature = 0;
   while (Cur && Cur.tell() < Content.size()) {
-    if (Shdr->sh_type == ELF::SHT_LLVM_BB_ADDR_MAP) {
+    if (Shdr->sh_type == DT.SectionTy) {
       Version = Data.getU8(Cur);
       if (Cur && Version > 2)
         return createStringError(
@@ -906,17 +1031,21 @@ ELFDumper<ELFT>::dumpBBAddrMapSection(const Elf_Shdr *Shdr) {
     }
     uint64_t Address = Data.getAddress(Cur);
     uint64_t NumBlocks = Data.getULEB128(Cur);
-    std::vector<ELFYAML::BBAddrMapEntry::BBEntry> BBEntries;
+    auto EntryExtraData = DT.getEntryExtraData(Feature);
+    std::vector<typename DumpTrait::BBEntryType> BBEntries;
     // Read the specified number of BB entries, or until decoding fails.
     for (uint64_t BlockIndex = 0; Cur && BlockIndex < NumBlocks; ++BlockIndex) {
-      uint32_t ID = Version >= 2 ? Data.getULEB128(Cur) : BlockIndex;
-      uint64_t Offset = Data.getULEB128(Cur);
-      uint64_t Size = Data.getULEB128(Cur);
-      uint64_t Metadata = Data.getULEB128(Cur);
-      BBEntries.push_back({ID, Offset, Size, Metadata});
+      auto EntryOrErr =
+          DT.makeBBEntry(Version, Feature, BlockIndex);
+      if (Error E = EntryOrErr.takeError()) {
+        consumeError(Cur.takeError()); // must consume even if success
+        return std::move(E);
+      }
+      BBEntries.push_back(std::move(*EntryOrErr));
     }
-    Entries.push_back(
-        {{Version, Feature, Address, /*NumBlocks=*/{}}, std::move(BBEntries)});
+    Entries.push_back(DT.makeEntry(
+        EntryExtraData, {Version, Feature, Address, /*NumBlocks=*/{}},
+        std::move(BBEntries)));
   }
 
   if (!Cur) {
@@ -928,6 +1057,18 @@ ELFDumper<ELFT>::dumpBBAddrMapSection(const Elf_Shdr *Shdr) {
   }
 
   return S.release();
+}
+
+template <class ELFT>
+Expected<ELFYAML::BBAddrMapSection *>
+ELFDumper<ELFT>::dumpBBAddrMapSection(const Elf_Shdr *Shdr) {
+  return dumpBBAddrMapSectionImpl<ELFYAML::BBAddrMapSection>(Shdr);
+}
+
+template <class ELFT>
+Expected<ELFYAML::PGOBBAddrMapSection *>
+ELFDumper<ELFT>::dumpPGOBBAddrMapSection(const Elf_Shdr *Shdr) {
+  return dumpBBAddrMapSectionImpl<ELFYAML::PGOBBAddrMapSection>(Shdr);
 }
 
 template <class ELFT>
