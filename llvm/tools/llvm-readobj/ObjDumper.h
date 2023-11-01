@@ -130,6 +130,7 @@ public:
   virtual void printHashHistograms() {}
   virtual void printCGProfile() {}
   virtual void printBBAddrMaps() {}
+  virtual void printPGOBBAddrMaps() {}
   virtual void printAddrsig() {}
   virtual void printNotes() {}
   virtual void printELFLinkerOptions() {}

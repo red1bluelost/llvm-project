@@ -96,6 +96,7 @@ static bool Addrsig;
 static bool All;
 static bool ArchSpecificInfo;
 static bool BBAddrMap;
+static bool PGOBBAddrMap;
 bool ExpandRelocs;
 static bool CGProfile;
 bool Demangle;
@@ -212,6 +213,7 @@ static void parseOptions(const opt::InputArgList &Args) {
   opts::All = Args.hasArg(OPT_all);
   opts::ArchSpecificInfo = Args.hasArg(OPT_arch_specific);
   opts::BBAddrMap = Args.hasArg(OPT_bb_addr_map);
+  opts::PGOBBAddrMap = Args.hasArg(OPT_pgo_bb_addr_map);
   opts::CGProfile = Args.hasArg(OPT_cg_profile);
   opts::Demangle = Args.hasFlag(OPT_demangle, OPT_no_demangle, false);
   opts::DependentLibraries = Args.hasArg(OPT_dependent_libraries);
@@ -466,6 +468,8 @@ static void dumpObject(ObjectFile &Obj, ScopedPrinter &Writer,
       Dumper->printCGProfile();
     if (opts::BBAddrMap)
       Dumper->printBBAddrMaps();
+    if (opts::PGOBBAddrMap)
+      Dumper->printPGOBBAddrMaps();
     if (opts::Addrsig)
       Dumper->printAddrsig();
     if (opts::Notes)

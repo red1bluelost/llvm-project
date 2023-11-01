@@ -594,6 +594,7 @@ public:
   void printVersionDependencySection(const Elf_Shdr *Sec) override;
   void printCGProfile() override;
   void printBBAddrMaps() override;
+  void printPGOBBAddrMaps() override;
   void printAddrsig() override;
   void printNotes() override;
   void printELFLinkerOptions() override;
@@ -705,6 +706,7 @@ public:
   void printVersionDependencySection(const Elf_Shdr *Sec) override;
   void printCGProfile() override;
   void printBBAddrMaps() override;
+  void printPGOBBAddrMaps() override;
   void printAddrsig() override;
   void printNotes() override;
   void printELFLinkerOptions() override;
@@ -738,6 +740,8 @@ private:
   void printMipsPLT(const MipsGOTParser<ELFT> &Parser) override;
   void printMipsABIFlags() override;
   virtual void printZeroSymbolOtherField(const Elf_Sym &Symbol) const;
+
+  template<typename AddrMap> void printAddrMaps();
 
 protected:
   virtual std::string getGroupSectionHeaderName() const;
@@ -5031,6 +5035,10 @@ template <class ELFT> void GNUELFDumper<ELFT>::printBBAddrMaps() {
   OS << "GNUStyle::printBBAddrMaps not implemented\n";
 }
 
+template <class ELFT> void GNUELFDumper<ELFT>::printPGOBBAddrMaps() {
+  OS << "GNUStyle::printPGOBBAddrMaps not implemented\n";
+}
+
 static Expected<std::vector<uint64_t>> toULEB128Array(ArrayRef<uint8_t> Data) {
   std::vector<uint64_t> Ret;
   const uint8_t *Cur = Data.begin();
@@ -7454,19 +7462,114 @@ template <class ELFT> void LLVMELFDumper<ELFT>::printCGProfile() {
   }
 }
 
-template <class ELFT> void LLVMELFDumper<ELFT>::printBBAddrMaps() {
-  bool IsRelocatable = this->Obj.getHeader().e_type == ELF::ET_REL;
+namespace {
+template <typename ELFT, typename AddrMap> struct AddrMapPrintTrait;
+
+template <typename ELFT> struct AddrMapPrintTrait<ELFT, BBAddrMap> {
   using Elf_Shdr = typename ELFT::Shdr;
-  auto IsMatch = [](const Elf_Shdr &Sec) -> bool {
+
+  static constexpr StringRef Name = "BBAddrMap";
+  static constexpr StringRef SHTName = "SHT_LLVM_BB_ADDR_MAP";
+
+  const LLVMELFDumper<ELFT> &ED;
+  ScopedPrinter &W;
+
+  AddrMapPrintTrait(const LLVMELFDumper<ELFT> &ED, ScopedPrinter &W)
+      : ED(ED), W(W) {}
+
+  static bool isMatch(const Elf_Shdr &Sec) {
     return Sec.sh_type == ELF::SHT_LLVM_BB_ADDR_MAP ||
            Sec.sh_type == ELF::SHT_LLVM_BB_ADDR_MAP_V0;
-  };
+  }
+
+  static Expected<std::vector<BBAddrMap>>
+  decodeAddrMap(const ELFFile<ELFT> &Obj, const Elf_Shdr *Sec,
+                const Elf_Shdr *RelocSec) {
+    return Obj.decodeBBAddrMap(*Sec, RelocSec);
+  }
+
+  template <typename AddrMap>
+  void printHeader(const AddrMap &AM, StringRef FuncName) {
+    W.printHex("At", AM.Addr);
+    W.printString("Name", FuncName);
+  }
+
+  template <typename AddrMap>
+  void printBBEntry(const AddrMap &, const BBAddrMap::BBEntry &BBE) {
+    W.printNumber("ID", BBE.ID);
+    W.printHex("Offset", BBE.Offset);
+    W.printHex("Size", BBE.Size);
+    W.printBoolean("HasReturn", BBE.hasReturn());
+    W.printBoolean("HasTailCall", BBE.hasTailCall());
+    W.printBoolean("IsEHPad", BBE.isEHPad());
+    W.printBoolean("CanFallThrough", BBE.canFallThrough());
+    W.printBoolean("HasIndirectBranch", BBE.hasIndirectBranch());
+  }
+};
+
+template <typename ELFT> struct AddrMapPrintTrait<ELFT, PGOBBAddrMap> {
+  using Elf_Shdr = typename ELFT::Shdr;
+
+  static constexpr StringRef Name = "PGOBBAddrMap";
+  static constexpr StringRef SHTName = "SHT_LLVM_PGO_BB_ADDR_MAP";
+
+  AddrMapPrintTrait<ELFT, BBAddrMap> Base;
+
+  AddrMapPrintTrait(const LLVMELFDumper<ELFT> &ED, ScopedPrinter &W)
+      : Base(ED, W) {}
+
+  static bool isMatch(const Elf_Shdr &Sec) {
+    return Sec.sh_type == ELF::SHT_LLVM_PGO_BB_ADDR_MAP;
+  }
+
+  static Expected<std::vector<PGOBBAddrMap>>
+  decodeAddrMap(const ELFFile<ELFT> &Obj, const Elf_Shdr *Sec,
+                const Elf_Shdr *RelocSec) {
+    return Obj.decodePGOBBAddrMap(*Sec, RelocSec);
+  }
+
+  void printHeader(const PGOBBAddrMap &AM, StringRef FuncName) {
+    Base.printHeader(AM, FuncName);
+    if (AM.FuncEntryCountEnabled)
+      Base.W.printNumber("EntryCount", AM.FuncEntryCount);
+  }
+
+  void printBBEntry(const PGOBBAddrMap &AM, const PGOBBAddrMap::BBEntry &BBE) {
+    Base.printBBEntry(AM, BBE.Base);
+
+    /// FIXME: currently we just emit the raw frequency, it may be better to
+    /// provide an option to scale it by the first entry frequence using
+    /// BlockFrequency::Scaled64 number
+    if (AM.BBFreqEnabled)
+      Base.W.printNumber("Frequency", BBE.BlockFreq.getFrequency());
+
+    if (AM.BBSuccProbEnabled) {
+      ListScope L(Base.W, "Successors");
+      for (const auto &Succ : BBE.Successors) {
+        DictScope L(Base.W);
+        Base.W.printNumber("ID", Succ.ID);
+        /// FIXME: currently we just emit the raw numerator of the probably,
+        /// it may be better to provide an option to emit it as a percentage
+        /// or other prettied representation
+        Base.W.printHex("Probability", Succ.Prob.getNumerator());
+      }
+    }
+  }
+};
+} // namespace
+
+template <typename ELFT>
+template <typename AddrMap>
+void LLVMELFDumper<ELFT>::printAddrMaps() {
+  using PrintTrait = AddrMapPrintTrait<ELFT, AddrMap>;
+  bool IsRelocatable = this->Obj.getHeader().e_type == ELF::ET_REL;
+  using Elf_Shdr = typename ELFT::Shdr;
   Expected<MapVector<const Elf_Shdr *, const Elf_Shdr *>> SecRelocMapOrErr =
-      this->Obj.getSectionAndRelocations(IsMatch);
+      this->Obj.getSectionAndRelocations(PrintTrait::isMatch);
   if (!SecRelocMapOrErr) {
     this->reportUniqueWarning(
-        "failed to get SHT_LLVM_BB_ADDR_MAP section(s): " +
-        toString(SecRelocMapOrErr.takeError()));
+        "failed to get " + PrintTrait::SHTName +
+        " section(s): " + toString(SecRelocMapOrErr.takeError()));
     return;
   }
   for (auto const &[Sec, RelocSec] : *SecRelocMapOrErr) {
@@ -7474,22 +7577,22 @@ template <class ELFT> void LLVMELFDumper<ELFT>::printBBAddrMaps() {
     if (IsRelocatable)
       FunctionSec =
           unwrapOrError(this->FileName, this->Obj.getSection(Sec->sh_link));
-    ListScope L(W, "BBAddrMap");
+    ListScope L(W, PrintTrait::Name);
     if (IsRelocatable && !RelocSec) {
       this->reportUniqueWarning("unable to get relocation section for " +
                                 this->describe(*Sec));
       continue;
     }
-    Expected<std::vector<BBAddrMap>> BBAddrMapOrErr =
-        this->Obj.decodeBBAddrMap(*Sec, RelocSec);
-    if (!BBAddrMapOrErr) {
+    Expected<std::vector<AddrMap>> AddrMapOrErr =
+        PrintTrait::decodeAddrMap(this->Obj, Sec, RelocSec);
+    if (!AddrMapOrErr) {
       this->reportUniqueWarning("unable to dump " + this->describe(*Sec) +
-                                ": " + toString(BBAddrMapOrErr.takeError()));
+                                ": " + toString(AddrMapOrErr.takeError()));
       continue;
     }
-    for (const BBAddrMap &AM : *BBAddrMapOrErr) {
+    PrintTrait PT(*this, W);
+    for (const AddrMap &AM : *AddrMapOrErr) {
       DictScope D(W, "Function");
-      W.printHex("At", AM.Addr);
       SmallVector<uint32_t> FuncSymIndex =
           this->getSymbolIndexesForFunctionAddress(AM.Addr, FunctionSec);
       std::string FuncName = "<?>";
@@ -7499,22 +7602,22 @@ template <class ELFT> void LLVMELFDumper<ELFT>::printBBAddrMaps() {
             Twine::utohexstr(AM.Addr) + ") in " + this->describe(*Sec));
       else
         FuncName = this->getStaticSymbolName(FuncSymIndex.front());
-      W.printString("Name", FuncName);
-
+      PT.printHeader(AM, FuncName);
       ListScope L(W, "BB entries");
-      for (const BBAddrMap::BBEntry &BBE : AM.BBEntries) {
+      for (const typename AddrMap::BBEntry &BBE : AM.BBEntries) {
         DictScope L(W);
-        W.printNumber("ID", BBE.ID);
-        W.printHex("Offset", BBE.Offset);
-        W.printHex("Size", BBE.Size);
-        W.printBoolean("HasReturn", BBE.hasReturn());
-        W.printBoolean("HasTailCall", BBE.hasTailCall());
-        W.printBoolean("IsEHPad", BBE.isEHPad());
-        W.printBoolean("CanFallThrough", BBE.canFallThrough());
-        W.printBoolean("HasIndirectBranch", BBE.hasIndirectBranch());
+        PT.printBBEntry(AM, BBE);
       }
     }
   }
+}
+
+template <class ELFT> void LLVMELFDumper<ELFT>::printBBAddrMaps() {
+  printAddrMaps<BBAddrMap>();
+}
+
+template <class ELFT> void LLVMELFDumper<ELFT>::printPGOBBAddrMaps() {
+  printAddrMaps<PGOBBAddrMap>();
 }
 
 template <class ELFT> void LLVMELFDumper<ELFT>::printAddrsig() {
