@@ -90,6 +90,7 @@
 #include <system_error>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 
 using namespace llvm;
 using namespace llvm::object;
@@ -1263,10 +1264,14 @@ static SymbolInfoTy createDummySymbolInfo(const ObjectFile &Obj,
     return SymbolInfoTy(Addr, Name, Type);
 }
 
-static void
-collectBBAddrMapLabels(const std::unordered_map<uint64_t, BBAddrMap> &AddrToBBAddrMap,
-                       uint64_t SectionAddr, uint64_t Start, uint64_t End,
-                       std::unordered_map<uint64_t, std::vector<std::string>> &Labels) {
+namespace {
+using AddrMapVariant = std::variant<BBAddrMap, PGOBBAddrMap>;
+} // namespace
+
+static void collectBBAddrMapLabels(
+    const std::unordered_map<uint64_t, AddrMapVariant> &AddrToBBAddrMap,
+    uint64_t SectionAddr, uint64_t Start, uint64_t End,
+    std::unordered_map<uint64_t, std::vector<std::string>> &Labels) {
   if (AddrToBBAddrMap.empty())
     return;
   Labels.clear();
@@ -1275,12 +1280,22 @@ collectBBAddrMapLabels(const std::unordered_map<uint64_t, BBAddrMap> &AddrToBBAd
   auto Iter = AddrToBBAddrMap.find(StartAddress);
   if (Iter == AddrToBBAddrMap.end())
     return;
-  for (const BBAddrMap::BBEntry &BBEntry : Iter->second.BBEntries) {
-    uint64_t BBAddress = BBEntry.Offset + Iter->second.Addr;
-    if (BBAddress >= EndAddress)
-      continue;
-    Labels[BBAddress].push_back(("BB" + Twine(BBEntry.ID)).str());
-  }
+  std::visit(
+      [&](const auto &AddrMap) {
+        for (const auto &BBEntry : AddrMap.BBEntries) {
+          const BBAddrMap::BBEntry *BBE;
+          if constexpr (std::is_same_v<PGOBBAddrMap,
+                                       std::decay_t<decltype(AddrMap)>>)
+            BBE = &BBEntry.Base;
+          else
+            BBE = &BBEntry;
+          uint64_t BBAddress = BBE->Offset + AddrMap.Addr;
+          if (BBAddress >= EndAddress)
+            return;
+          Labels[BBAddress].push_back(("BB" + Twine(BBE->ID)).str());
+        }
+      },
+      Iter->second);
 }
 
 static void
@@ -1631,20 +1646,32 @@ disassembleObject(ObjectFile &Obj, const ObjectFile &DbgObj,
 
   LLVM_DEBUG(LVP.dump());
 
-  std::unordered_map<uint64_t, BBAddrMap> AddrToBBAddrMap;
+  std::unordered_map<uint64_t, AddrMapVariant> AddrToBBAddrMap;
   auto ReadBBAddrMap = [&](std::optional<unsigned> SectionIndex =
                                std::nullopt) {
     AddrToBBAddrMap.clear();
-    if (const auto *Elf = dyn_cast<ELFObjectFileBase>(&Obj)) {
-      auto BBAddrMapsOrErr = Elf->readBBAddrMap(SectionIndex);
-      if (!BBAddrMapsOrErr) {
-        reportWarning(toString(BBAddrMapsOrErr.takeError()), Obj.getFileName());
-        return;
-      }
+    const auto *Elf = dyn_cast<ELFObjectFileBase>(&Obj);
+    if (!Elf)
+      return;
+    auto BBAddrMapsOrErr = Elf->readBBAddrMap(SectionIndex);
+    if (BBAddrMapsOrErr && !BBAddrMapsOrErr->empty()) {
       for (auto &FunctionBBAddrMap : *BBAddrMapsOrErr)
         AddrToBBAddrMap.emplace(FunctionBBAddrMap.Addr,
                                 std::move(FunctionBBAddrMap));
-    }
+      return;
+    };
+    auto PGOBBAddrMapsOrErr = Elf->readPGOBBAddrMap(SectionIndex);
+    if (PGOBBAddrMapsOrErr) {
+      for (auto &FunctionPGOBBAddrMap : *PGOBBAddrMapsOrErr)
+        AddrToBBAddrMap.emplace(FunctionPGOBBAddrMap.Addr,
+                                std::move(FunctionPGOBBAddrMap));
+      return;
+    };
+
+    if (!BBAddrMapsOrErr || !PGOBBAddrMapsOrErr)
+      reportWarning(toString(joinErrors(BBAddrMapsOrErr.takeError(),
+                                        PGOBBAddrMapsOrErr.takeError())),
+                    Obj.getFileName());
   };
 
   // For non-relocatable objects, Read all LLVM_BB_ADDR_MAP sections into a
