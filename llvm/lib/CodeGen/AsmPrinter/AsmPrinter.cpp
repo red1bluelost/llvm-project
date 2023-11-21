@@ -1360,6 +1360,12 @@ void AsmPrinter::emitFrameAlloc(const MachineInstr &MI) {
                              MCConstantExpr::create(FrameOffset, OutContext));
 }
 
+namespace {
+struct PGOFeaturesEnabled {
+  bool FuncEntryCnt, BBFreq, BrProb;
+};
+} // namespace
+
 /// Returns the BB metadata to be emitted in the SHT_LLVM_BB_ADDR_MAP section
 /// for a given basic block. This can be used to capture more precise profile
 /// information.
@@ -1372,8 +1378,9 @@ getBBAddrMapMetadata(const MachineBasicBlock &MBB) {
 }
 
 static void emitPGOFunctionData(const MachineFunction &MF,
+                                PGOFeaturesEnabled PGOFeatures,
                                 MCStreamer &OutStreamer) {
-  if (PgoAnalysisMapFeatures.isSet(PGOMapFeaturesEnum::FuncEntryCnt)) {
+  if (PGOFeatures.FuncEntryCnt) {
     OutStreamer.AddComment("function entry count");
     auto MaybeEntryCount = MF.getFunction().getEntryCount();
     OutStreamer.emitULEB128IntValue(
@@ -1383,13 +1390,16 @@ static void emitPGOFunctionData(const MachineFunction &MF,
 
 static void emitPGOBBData(const MachineFunction &MF,
                           const MachineBasicBlock &MBB,
-                          const MachineBlockFrequencyInfo &MBFI,
-                          const MachineBranchProbabilityInfo &MBPI,
+                          const MachineBlockFrequencyInfo *MBFI,
+                          const MachineBranchProbabilityInfo *MBPI,
+                          PGOFeaturesEnabled PGOFeatures,
                           MCStreamer &OutStreamer) {
-  bool UseBrProb = PgoAnalysisMapFeatures.isSet(PGOMapFeaturesEnum::BrProb);
+  assert(PGOFeatures.BBFreq ? MBFI != nullptr : true);
+  assert(PGOFeatures.BrProb ? MBPI != nullptr : true);
+
   unsigned SuccCount;
   auto SuccsType = object::PGOAnalysisMap::PGOBBEntry::SuccessorsType::None;
-  if (UseBrProb) {
+  if (PGOFeatures.BrProb) {
     SuccCount = MBB.succ_size();
     SuccsType =
         object::PGOAnalysisMap::PGOBBEntry::getSuccessorsType(SuccCount);
@@ -1399,12 +1409,12 @@ static void emitPGOBBData(const MachineFunction &MF,
   OutStreamer.emitULEB128IntValue(object::PGOAnalysisMap::PGOBBEntry::encodeMD(
       getBBAddrMapMetadata(MBB), SuccsType));
 
-  if (PgoAnalysisMapFeatures.isSet(PGOMapFeaturesEnum::BBFreq)) {
+  if (PGOFeatures.BBFreq) {
     OutStreamer.AddComment("basic block frequency");
-    OutStreamer.emitULEB128IntValue(MBFI.getBlockFreq(&MBB).getFrequency());
+    OutStreamer.emitULEB128IntValue(MBFI->getBlockFreq(&MBB).getFrequency());
   }
 
-  if (UseBrProb) {
+  if (PGOFeatures.BrProb) {
     if (SuccsType ==
         object::PGOAnalysisMap::PGOBBEntry::SuccessorsType::Multiple) {
       OutStreamer.AddComment("basic block successor count");
@@ -1415,7 +1425,7 @@ static void emitPGOBBData(const MachineFunction &MF,
       OutStreamer.emitULEB128IntValue(SuccMBB->getBBID()->BaseID);
       OutStreamer.AddComment("successor branch probability");
       OutStreamer.emitULEB128IntValue(
-          MBPI.getEdgeProbability(&MBB, SuccMBB).getNumerator());
+          MBPI->getEdgeProbability(&MBB, SuccMBB).getNumerator());
     }
   }
 }
@@ -1423,6 +1433,10 @@ static void emitPGOBBData(const MachineFunction &MF,
 void AsmPrinter::emitBBAddrMapSection(const MachineFunction &MF) {
   unsigned PGOFeatures = PgoAnalysisMapFeatures.getBits();
   bool UsePGOExtension = PGOFeatures != 0;
+  PGOFeaturesEnabled PGOFeatureEnable{
+      PgoAnalysisMapFeatures.isSet(PGOMapFeaturesEnum::FuncEntryCnt),
+      PgoAnalysisMapFeatures.isSet(PGOMapFeaturesEnum::BBFreq),
+      PgoAnalysisMapFeatures.isSet(PGOMapFeaturesEnum::BrProb)};
 
   MCSection *BBAddrMapSection =
       getObjFileLowering().getBBAddrMapSection(*MF.getSection());
@@ -1431,7 +1445,7 @@ void AsmPrinter::emitBBAddrMapSection(const MachineFunction &MF) {
   const MCSymbol *FunctionSymbol = getFunctionBegin();
   uint8_t BBAddrMapVersion = OutStreamer->getContext().getBBAddrMapVersion();
   assert((UsePGOExtension ? BBAddrMapVersion >= 2 : true) &&
-         "PGOBBAddrMap only supports version 2 or later");
+         "PGOAnalysisMap only supports version 2 or later");
 
   OutStreamer->pushSection();
   OutStreamer->switchSection(BBAddrMapSection);
@@ -1444,7 +1458,7 @@ void AsmPrinter::emitBBAddrMapSection(const MachineFunction &MF) {
   OutStreamer->AddComment("number of basic blocks");
   OutStreamer->emitULEB128IntValue(MF.size());
   if (UsePGOExtension)
-    emitPGOFunctionData(MF, *OutStreamer);
+    emitPGOFunctionData(MF, PGOFeatureEnable, *OutStreamer);
   const MCSymbol *PrevMBBEndSymbol = FunctionSymbol;
   // Emit BB Information for each basic block in the function.
   for (const MachineBasicBlock &MBB : MF) {
@@ -1468,11 +1482,15 @@ void AsmPrinter::emitBBAddrMapSection(const MachineFunction &MF) {
     emitLabelDifferenceAsULEB128(MBB.getEndSymbol(), MBBSymbol);
     // Emit the Metadata.
     if (UsePGOExtension) {
-      const MachineBlockFrequencyInfo &MBFI =
-          getAnalysis<LazyMachineBlockFrequencyInfoPass>().getBFI();
-      const MachineBranchProbabilityInfo *MBPI = MBFI.getMBPI();
+      const MachineBlockFrequencyInfo *MBFI =
+          PGOFeatureEnable.BBFreq
+              ? &getAnalysis<LazyMachineBlockFrequencyInfoPass>().getBFI()
+              : nullptr;
+      const MachineBranchProbabilityInfo *MBPI =
+          PGOFeatureEnable.BrProb ? &getAnalysis<MachineBranchProbabilityInfo>()
+                                  : nullptr;
       assert(MBPI != nullptr && "expected MBPI to be present in MBFI");
-      emitPGOBBData(MF, MBB, MBFI, *MBPI, *OutStreamer);
+      emitPGOBBData(MF, MBB, MBFI, MBPI, PGOFeatureEnable, *OutStreamer);
     } else {
       OutStreamer->emitULEB128IntValue(getBBAddrMapMetadata(MBB).encode());
     }
