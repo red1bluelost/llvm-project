@@ -2,10 +2,10 @@
 # RUN: llc -mtriple x86_64-unknown-linux-gnu -start-after=bbsections-prepare  %s -o - | FileCheck %s -check-prefix=CHECK
 
 # Also verify that this holds for PGO extension
-# RUN: llc -mtriple x86_64-unknown-linux-gnu -start-after=bbsections-prepare -pgo-bb-addr-map=func-entry-count,bb-freq,br-prob %s -o - | FileCheck %s -check-prefix=CHECK-PGO
-# RUN: llc -mtriple x86_64-unknown-linux-gnu -start-after=bbsections-prepare -pgo-bb-addr-map=func-entry-count %s -o - | FileCheck %s -check-prefix=CHECK-PGO
-# RUN: llc -mtriple x86_64-unknown-linux-gnu -start-after=bbsections-prepare -pgo-bb-addr-map=bb-freq %s -o - | FileCheck %s -check-prefix=CHECK-PGO
-# RUN: llc -mtriple x86_64-unknown-linux-gnu -start-after=bbsections-prepare -pgo-bb-addr-map=br-prob %s -o - | FileCheck %s -check-prefix=CHECK-PGO
+# RUN: llc -mtriple x86_64-unknown-linux-gnu -start-after=bbsections-prepare -pgo-analysis-map=func-entry-count,bb-freq,br-prob %s -o - | FileCheck %s -check-prefix=CHECK
+# RUN: llc -mtriple x86_64-unknown-linux-gnu -start-after=bbsections-prepare -pgo-analysis-map=func-entry-count %s -o - | FileCheck %s -check-prefix=CHECK
+# RUN: llc -mtriple x86_64-unknown-linux-gnu -start-after=bbsections-prepare -pgo-analysis-map=bb-freq %s -o - | FileCheck %s -check-prefix=CHECK
+# RUN: llc -mtriple x86_64-unknown-linux-gnu -start-after=bbsections-prepare -pgo-analysis-map=br-prob %s -o - | FileCheck %s -check-prefix=CHECK
 
 # How to generate the input:
 # foo.cc
@@ -18,7 +18,6 @@
 # llc < foo.ll -stop-after=bbsections-prepare -basic-block-sections=labels
 
 # CHECK: .section	.llvm_bb_addr_map,"o",@llvm_bb_addr_map,.text
-# CHECK-PGO: .section	.llvm_pgo_bb_addr_map,"o",@llvm_pgo_bb_addr_map,.text
 --- |
   ; ModuleID = '<stdin>'
   source_filename = "/tmp/foo.cc"

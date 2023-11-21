@@ -1,7 +1,7 @@
 ;; This test verifies that with -gc-empty-basic-blocks SHT_LLVM_BB_ADDR_MAP will not include entries for empty blocks.
-; RUN: llc < %s -mtriple=x86_64 -O0 -basic-block-sections=labels -gc-empty-basic-blocks | FileCheck --check-prefixes=Basic,ALL %s
+; RUN: llc < %s -mtriple=x86_64 -O0 -basic-block-sections=labels -gc-empty-basic-blocks | FileCheck --check-prefix=CHECK %s
 ;; Additionally test that this holds for pgo extension
-; RUN: llc < %s -mtriple=x86_64 -O0 -basic-block-sections=labels -pgo-bb-addr-map=bb-freq -gc-empty-basic-blocks | FileCheck --check-prefixes=PGO,ALL %s
+; RUN: llc < %s -mtriple=x86_64 -O0 -basic-block-sections=labels -pgo-analysis-map=bb-freq -gc-empty-basic-blocks | FileCheck --check-prefixes=CHECK %s
 
 define void @foo(i1 zeroext %0) nounwind {
   br i1 %0, label %2, label %empty_block
@@ -19,6 +19,5 @@ empty_block:                                     ; preds = %1
 
 declare i32 @bar()
 
-; Basic: .section	.llvm_bb_addr_map,"o",@llvm_bb_addr_map,.text
-; PGO: .section	.llvm_pgo_bb_addr_map,"o",@llvm_pgo_bb_addr_map,.text
-; ALL: .byte	3                               # number of basic blocks
+; CHECK: .section	.llvm_bb_addr_map,"o",@llvm_bb_addr_map,.text
+; CHECK: .byte	3                               # number of basic blocks

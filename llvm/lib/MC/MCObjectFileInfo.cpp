@@ -1131,8 +1131,8 @@ MCObjectFileInfo::getStackSizesSection(const MCSection &TextSec) const {
                             cast<MCSymbolELF>(TextSec.getBeginSymbol()));
 }
 
-MCSection *MCObjectFileInfo::getBBAddrMapSection(const MCSection &TextSec,
-                                                 bool UsePGOExtension) const {
+MCSection *
+MCObjectFileInfo::getBBAddrMapSection(const MCSection &TextSec) const {
   if (Ctx->getObjectFileType() != MCContext::IsELF)
     return nullptr;
 
@@ -1146,10 +1146,7 @@ MCSection *MCObjectFileInfo::getBBAddrMapSection(const MCSection &TextSec,
 
   // Use the text section's begin symbol and unique ID to create a separate
   // .llvm_bb_addr_map section associated with every unique text section.
-  return Ctx->getELFSection(UsePGOExtension ? ".llvm_pgo_bb_addr_map"
-                                            : ".llvm_bb_addr_map",
-                            UsePGOExtension ? ELF::SHT_LLVM_PGO_BB_ADDR_MAP
-                                            : ELF::SHT_LLVM_BB_ADDR_MAP,
+  return Ctx->getELFSection(".llvm_bb_addr_map", ELF::SHT_LLVM_BB_ADDR_MAP,
                             Flags, 0, GroupName, true, ElfSec.getUniqueID(),
                             cast<MCSymbolELF>(TextSec.getBeginSymbol()));
 }

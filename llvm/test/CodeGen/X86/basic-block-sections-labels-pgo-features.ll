@@ -2,12 +2,12 @@
 ; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels | FileCheck %s --check-prefixes=CHECK,BASIC,WO-BRP
 
 ;; Also verify this holds for all PGO features enabled
-; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-bb-addr-map=func-entry-count,bb-freq,br-prob | FileCheck %s --check-prefixes=CHECK,PGO,PGO-ALL,PGO-FEC,PGO-BBF,PGO-BRP,W-BRP
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-analysis-map=func-entry-count,bb-freq,br-prob | FileCheck %s --check-prefixes=CHECK,PGO-ALL,PGO-FEC,PGO-BBF,PGO-BRP,W-BRP
 
 ;; Also verify that pgo extension only includes the enabled feature
-; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-bb-addr-map=func-entry-count | FileCheck %s --check-prefixes=CHECK,PGO,PGO-FEC,FEC-ONLY,WO-BRP
-; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-bb-addr-map=bb-freq | FileCheck %s --check-prefixes=CHECK,PGO,PGO-BBF,BBF-ONLY,WO-BRP
-; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-bb-addr-map=br-prob | FileCheck %s --check-prefixes=CHECK,PGO,PGO-BRP,BRP-ONLY,W-BRP
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-analysis-map=func-entry-count | FileCheck %s --check-prefixes=CHECK,PGO-FEC,FEC-ONLY,WO-BRP
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-analysis-map=bb-freq | FileCheck %s --check-prefixes=CHECK,PGO-BBF,BBF-ONLY,WO-BRP
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-analysis-map=br-prob | FileCheck %s --check-prefixes=CHECK,PGO-BRP,BRP-ONLY,W-BRP
 
 
 define void @_Z3bazb(i1 zeroext, i1 zeroext) personality ptr @__gxx_personality_v0 {
@@ -53,8 +53,7 @@ declare i32 @__gxx_personality_v0(...)
 ; CHECK-LABEL:	.LBB_END0_3:
 ; CHECK-LABEL:	.Lfunc_end0:
 
-; BASIC: 	.section	.llvm_bb_addr_map,"o",@llvm_bb_addr_map,.text._Z3bazb{{$}}
-; PGO:	      	.section	.llvm_pgo_bb_addr_map,"o",@llvm_pgo_bb_addr_map,.text._Z3bazb{{$}}
+; CHECK: 	.section	.llvm_bb_addr_map,"o",@llvm_bb_addr_map,.text._Z3bazb{{$}}
 ; CHECK-NEXT:   .byte   2		# version
 ; BASIC-NEXT:   .byte   0		# feature
 ; PGO-ALL-NEXT:	.byte   7		# feature

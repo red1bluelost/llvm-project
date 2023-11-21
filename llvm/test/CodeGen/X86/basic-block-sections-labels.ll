@@ -1,12 +1,12 @@
 ; Check the basic block sections labels option
-; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels | FileCheck %s --check-prefixes=CHECK,UNIQ,UNIQ-BASIC,BASIC
-; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=false -basic-block-sections=labels | FileCheck %s --check-prefixes=CHECK,NOUNIQ,NOUNIQ-BASIC,BASIC
-; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -split-machine-functions | FileCheck %s --check-prefixes=CHECK,UNIQ,UNIQ-BASIC,BASIC
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels | FileCheck %s --check-prefixes=CHECK,UNIQ,BASIC
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=false -basic-block-sections=labels | FileCheck %s --check-prefixes=CHECK,NOUNIQ,BASIC
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -split-machine-functions | FileCheck %s --check-prefixes=CHECK,UNIQ,BASIC
 
 ;; Also verify this holds for PGO extension
-; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-bb-addr-map=func-entry-count,bb-freq,br-prob | FileCheck %s --check-prefixes=CHECK,UNIQ,UNIQ-PGO,PGO
-; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=false -basic-block-sections=labels -pgo-bb-addr-map=func-entry-count,bb-freq,br-prob | FileCheck %s --check-prefixes=CHECK,NOUNIQ,NOUNIQ-PGO,PGO
-; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -split-machine-functions -pgo-bb-addr-map=func-entry-count,bb-freq,br-prob | FileCheck %s --check-prefixes=CHECK,UNIQ,UNIQ-PGO,PGO
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -pgo-analysis-map=func-entry-count,bb-freq,br-prob | FileCheck %s --check-prefixes=CHECK,UNIQ,PGO
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=false -basic-block-sections=labels -pgo-analysis-map=func-entry-count,bb-freq,br-prob | FileCheck %s --check-prefixes=CHECK,NOUNIQ,PGO
+; RUN: llc < %s -mtriple=x86_64 -function-sections -unique-section-names=true -basic-block-sections=labels -split-machine-functions -pgo-analysis-map=func-entry-count,bb-freq,br-prob | FileCheck %s --check-prefixes=CHECK,UNIQ,PGO
 
 define void @_Z3bazb(i1 zeroext, i1 zeroext) personality ptr @__gxx_personality_v0 {
   br i1 %0, label %3, label %8
@@ -52,11 +52,9 @@ declare i32 @__gxx_personality_v0(...)
 ; CHECK-LABEL:	.LBB_END0_3:
 ; CHECK-LABEL:	.Lfunc_end0:
 
-; UNIQ-BASIC: 		.section	.llvm_bb_addr_map,"o",@llvm_bb_addr_map,.text._Z3bazb{{$}}
-; UNIQ-PGO:	      	.section	.llvm_pgo_bb_addr_map,"o",@llvm_pgo_bb_addr_map,.text._Z3bazb{{$}}
+; UNIQ:			.section	.llvm_bb_addr_map,"o",@llvm_bb_addr_map,.text._Z3bazb{{$}}
 ;; Verify that with -unique-section-names=false, the unique id of the text section gets assigned to the llvm_bb_addr_map section.
-; NOUNIQ-BASIC:		.section	.llvm_bb_addr_map,"o",@llvm_bb_addr_map,.text,unique,1
-; NOUNIQ-PGO:		.section	.llvm_pgo_bb_addr_map,"o",@llvm_pgo_bb_addr_map,.text,unique,1
+; NOUNIQ:		.section	.llvm_bb_addr_map,"o",@llvm_bb_addr_map,.text,unique,1
 ; CHECK-NEXT:   .byte   2		# version
 ; BASIC-NEXT:   .byte   0		# feature
 ; PGO-NEXT:     .byte   7		# feature

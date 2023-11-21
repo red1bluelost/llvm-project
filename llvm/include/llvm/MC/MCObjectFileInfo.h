@@ -354,8 +354,7 @@ public:
 
   MCSection *getStackSizesSection(const MCSection &TextSec) const;
 
-  MCSection *getBBAddrMapSection(const MCSection &TextSec,
-                                 bool UsePGOExtension) const;
+  MCSection *getBBAddrMapSection(const MCSection &TextSec) const;
 
   MCSection *getKCFITrapSection(const MCSection &TextSec) const;
 

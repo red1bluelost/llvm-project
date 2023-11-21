@@ -451,29 +451,32 @@ Example:
    .uleb128  .LBB_END0_1-.LBB0_1          # BB_1 size
    .byte     y                            # BB_1 metadata
 
-``SHT_LLVM_PGO_BB_ADDR_MAP`` Section (pgo basic block address map)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-This section has all the same functionality as ``SHT_LLVM_BB_ADDR_MAP`` with
-additional data relating to PGO analyses. Supported analyses that can be
-emitted currently are Function Entry Count, Basic Block Frequencies, and Branch
-Probabilities.
+PGO Analysis Map Extra Data
+"""""""""""""""""""""""""""
+
+PGO related analysis data can be emitted inline with the BBAddrMap through the
+optional ``pgo-analysis-map`` flag. Supported analyses currently are Function
+Entry Count, Basic Block Frequencies, and Branch Probabilities.
 
 Each analysis is enabled or disabled via a bit in the feature byte. Currently
 those bits are:
-* 0 - Function Entry Count - Number of times the function was called as taken
-  from a PGO profile. This will always be zero if PGO was not used or the
-  function was not encountered in the profile.
-* 1 - Basic Block Frequencies - Encoded as raw block frequency value taken from
-  MBFI analysis. This value is an integer that encodes the relative frequency
-  compared to the entry block. More information can be found in
-  'llvm/Support/BlockFrequency.h'.
-* 2 - Branch Probabilities - Encoded as raw numerator for branch probability
-  taken from MBPI analysis. This value is the numerator for a fixed point ratio
-  defined in 'llvm/Support/BranchProbability.h'. It indicates the probability
-  that the block is followed by a given successor block during execution.
 
-This section requires version 2 or above. This is necessary since successors of
-basic blocks won't know their index but will know their BB ID.
+#. Function Entry Count - Number of times the function was called as taken
+   from a PGO profile. This will always be zero if PGO was not used or the
+   function was not encountered in the profile.
+
+#. Basic Block Frequencies - Encoded as raw block frequency value taken from
+   MBFI analysis. This value is an integer that encodes the relative frequency
+   compared to the entry block. More information can be found in
+   'llvm/Support/BlockFrequency.h'.
+
+#. Branch Probabilities - Encoded as raw numerator for branch probability
+   taken from MBPI analysis. This value is the numerator for a fixed point ratio
+   defined in 'llvm/Support/BranchProbability.h'. It indicates the probability
+   that the block is followed by a given successor block during execution.
+
+This extra data requires version 2 or above. This is necessary since successors
+of basic blocks won't know their index but will know their BB ID.
 
 For branch probability, two bits are used in the metadata field to indicate
 successor count. The four cases are 0, 1, 2, and 3+ plus successors. For the
@@ -481,11 +484,11 @@ majority of blocks, we can omit a successor size if less than 3 to save space.
 The two bits for successor count are appended after the most significant bit
 of the original ``SHT_LLVM_BB_ADDR_MAP`` metadata (currently bits 5 and 6).
 
-Example:
+Example of BBAddrMap with PGO data:
 
 .. code-block:: gas
 
-  .section  ".llvm_pgo_bb_addr_map","",@llvm_pgo_bb_addr_map
+  .section  ".llvm_bb_addr_map","",@llvm_bb_addr_map
   .byte     2                             # version number
   .byte     7                             # feature byte - PGO analyses enabled mask
   .quad     .Lfunc_begin0                 # address of the function
