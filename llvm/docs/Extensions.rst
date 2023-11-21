@@ -460,9 +460,17 @@ Probabilities.
 
 Each analysis is enabled or disabled via a bit in the feature byte. Currently
 those bits are:
-* 0 - Function Entry Count
-* 1 - Basic Block Frequencies
-* 2 - Branch Probabilities
+* 0 - Function Entry Count - Number of times the function was called as taken
+  from a PGO profile. This will always be zero if PGO was not used or the
+  function was not encountered in the profile.
+* 1 - Basic Block Frequencies - Encoded as raw block frequency value taken from
+  MBFI analysis. This value is an integer that encodes the relative frequency
+  compared to the entry block. More information can be found in
+  'llvm/Support/BlockFrequency.h'.
+* 2 - Branch Probabilities - Encoded as raw numerator for branch probability
+  taken from MBPI analysis. This value is the numerator for a fixed point ratio
+  defined in 'llvm/Support/BranchProbability.h'. It indicates the probability
+  that the block is followed by a given successor block during execution.
 
 This section requires version 2 or above. This is necessary since successors of
 basic blocks won't know their index but will know their BB ID.

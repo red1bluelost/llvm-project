@@ -1368,17 +1368,16 @@ getBBAddrMapMetadata(const MachineBasicBlock &MBB) {
   const TargetInstrInfo *TII = MBB.getParent()->getSubtarget().getInstrInfo();
   return {MBB.isReturnBlock(), !MBB.empty() && TII->isTailCall(MBB.back()),
           MBB.isEHPad(), const_cast<MachineBasicBlock &>(MBB).canFallThrough(),
-          !MBB.empty() && MBB.rbegin()->isIndirectBranch()};
+          !MBB.empty() && MBB.back().isIndirectBranch()};
 }
 
 static void emitPGOFunctionData(const MachineFunction &MF,
                                 MCStreamer &OutStreamer) {
   if (PgoBBAddrMapFeatures.isSet(PGOMapFeaturesEnum::FuncEntryCnt)) {
     OutStreamer.AddComment("function entry count");
+    auto MaybeEntryCount = MF.getFunction().getEntryCount();
     OutStreamer.emitULEB128IntValue(
-        llvm::transformOptional(MF.getFunction().getEntryCount(),
-                                std::mem_fn(&Function::ProfileCount::getCount))
-            .value_or(0));
+        MaybeEntryCount ? MaybeEntryCount->getCount() : 0);
   }
 }
 
@@ -1437,7 +1436,7 @@ void AsmPrinter::emitBBAddrMapSection(const MachineFunction &MF) {
   OutStreamer->AddComment("version");
   OutStreamer->emitInt8(BBAddrMapVersion);
   OutStreamer->AddComment("feature");
-  OutStreamer->emitInt8(uint64_t(PGOFeatures));
+  OutStreamer->emitInt8(static_cast<uint8_t>(PGOFeatures));
   OutStreamer->AddComment("function address");
   OutStreamer->emitSymbolValue(FunctionSymbol, getPointerSize());
   OutStreamer->AddComment("number of basic blocks");
@@ -2001,7 +2000,8 @@ void AsmPrinter::emitFunctionBody() {
 
   // Emit section containing BB address offsets and their metadata, when
   // BB labels are requested for this function. Skip empty functions.
-  if (bool HasLabels = MF->hasBBLabels(); HasLabels && HasAnyRealCode)
+  bool HasLabels = MF->hasBBLabels();
+  if (HasLabels && HasAnyRealCode)
     emitBBAddrMapSection(*MF);
   else if (!HasLabels && HasAnyRealCode && PgoBBAddrMapFeatures.getBits() != 0)
     MF->getContext().reportWarning(
