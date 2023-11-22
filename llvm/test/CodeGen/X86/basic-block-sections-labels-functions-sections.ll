@@ -16,6 +16,10 @@ define dso_local i32 @_Z3barv() {
 ; PGO-NEXT:		.byte 3			# feature
 ; CHECK-NEXT:		.quad [[BAR_BEGIN]]	# function address
 ; CHECK-NEXT:		.byte 1			# number of basic blocks
+; CHECK-NEXT:	      	.byte 0			# BB id
+; CHECK-NEXT:	      	.uleb128 .Lfunc_begin0-.Lfunc_begin0
+; CHECK-NEXT:	      	.uleb128 .LBB_END0_0-.Lfunc_begin0
+; CHECK-NEXT:	      	.byte 1
 ; PGO-NEXT:		.byte 0			# function entry count
 
 
@@ -32,6 +36,10 @@ define dso_local i32 @_Z3foov() {
 ; PGO-NEXT:		.byte 3			# feature
 ; CHECK-NEXT:		.quad [[FOO_BEGIN]]	# function address
 ; CHECK-NEXT:		.byte 1			# number of basic blocks
+; CHECK-NEXT:	      	.byte 0			# BB id
+; CHECK-NEXT:	      	.uleb128 .Lfunc_begin1-.Lfunc_begin1
+; CHECK-NEXT:	      	.uleb128 .LBB_END1_0-.Lfunc_begin1
+; CHECK-NEXT:	      	.byte 1
 ; PGO-NEXT:		.byte 0			# function entry count
 
 
@@ -48,4 +56,8 @@ define linkonce_odr dso_local i32 @_Z4fooTIiET_v() comdat {
 ; PGO-NEXT:		.byte 3				# feature
 ; CHECK-NEXT:		.quad [[FOOCOMDAT_BEGIN]]	# function address
 ; CHECK-NEXT:		.byte 1				# number of basic blocks
+; CHECK-NEXT:	      	.byte 0			# BB id
+; CHECK-NEXT:	      	.uleb128 .Lfunc_begin2-.Lfunc_begin2
+; CHECK-NEXT:	      	.uleb128 .LBB_END2_0-.Lfunc_begin2
+; CHECK-NEXT:	      	.byte 1
 ; PGO-NEXT:		.byte 0				# function entry count

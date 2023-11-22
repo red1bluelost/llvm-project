@@ -454,9 +454,10 @@ Example:
 PGO Analysis Map Extra Data
 """""""""""""""""""""""""""
 
-PGO related analysis data can be emitted inline with the BBAddrMap through the
-optional ``pgo-analysis-map`` flag. Supported analyses currently are Function
-Entry Count, Basic Block Frequencies, and Branch Probabilities.
+PGO related analysis data can be emitted after each function within the
+BBAddrMap through the optional ``pgo-analysis-map`` flag. Supported analyses
+currently are Function Entry Count, Basic Block Frequencies, and Branch
+Probabilities.
 
 Each analysis is enabled or disabled via a bit in the feature byte. Currently
 those bits are:
@@ -478,12 +479,6 @@ those bits are:
 This extra data requires version 2 or above. This is necessary since successors
 of basic blocks won't know their index but will know their BB ID.
 
-For branch probability, two bits are used in the metadata field to indicate
-successor count. The four cases are 0, 1, 2, and 3+ plus successors. For the
-majority of blocks, we can omit a successor size if less than 3 to save space.
-The two bits for successor count are appended after the most significant bit
-of the original ``SHT_LLVM_BB_ADDR_MAP`` metadata (currently bits 5 and 6).
-
 Example of BBAddrMap with PGO data:
 
 .. code-block:: gas
@@ -493,44 +488,52 @@ Example of BBAddrMap with PGO data:
   .byte     7                             # feature byte - PGO analyses enabled mask
   .quad     .Lfunc_begin0                 # address of the function
   .uleb128  4                             # number of basic blocks
-  .uleb128  1000                          # function entry count (only when enabled)
   # BB record for BB_0
    .uleb128  0                            # BB_0 BB ID
    .uleb128  .Lfunc_begin0-.Lfunc_begin0  # BB_0 offset relative to function entry (always zero)
    .uleb128  .LBB_END0_0-.Lfunc_begin0    # BB_0 size
-   .byte     0x78                         # BB_0 metadata (multiple successors)
+   .byte     0x18                         # BB_0 metadata (multiple successors)
+  # BB record for BB_1
+   .uleb128  1                            # BB_1 BB ID
+   .uleb128  .LBB0_1-.LBB_END0_0          # BB_1 offset relative to the end of last block (BB_0).
+   .uleb128  .LBB_END0_1-.LBB0_1          # BB_1 size
+   .byte     0x0                          # BB_1 metadata (two successors)
+  # BB record for BB_2
+   .uleb128  2                            # BB_2 BB ID
+   .uleb128  .LBB0_2-.LBB_END1_0          # BB_2 offset relative to the end of last block (BB_1).
+   .uleb128  .LBB_END0_2-.LBB0_2          # BB_2 size
+   .byte     0x0                          # BB_2 metadata (one successor)
+  # BB record for BB_3
+   .uleb128  3                            # BB_3 BB ID
+   .uleb128  .LBB0_3-.LBB_END0_2          # BB_3 offset relative to the end of last block (BB_2).
+   .uleb128  .LBB_END0_3-.LBB0_3          # BB_3 size
+   .byte     0x0                          # BB_3 metadata (zero successors)
+  # PGO Analysis Map
+  .uleb128  1000                          # function entry count (only when enabled)
+  # PGO data record for BB_0
    .uleb128  1000                         # BB_0 basic block frequency (only when enabled)
-   .uleb128  3                            # BB_0 successors count (only enabled with branch probabilities when >2)
+   .uleb128  3                            # BB_0 successors count (only enabled with branch probabilities)
    .uleb128  1                            # BB_0 successor 1 BB ID (only enabled with branch probabilities)
    .uleb128  0x22222222                   # BB_0 successor 1 branch probability (only enabled with branch probabilities)
    .uleb128  2                            # BB_0 successor 2 BB ID (only enabled with branch probabilities)
    .uleb128  0x33333333                   # BB_0 successor 2 branch probability (only enabled with branch probabilities)
    .uleb128  3                            # BB_0 successor 3 BB ID (only enabled with branch probabilities)
    .uleb128  0xaaaaaaaa                   # BB_0 successor 3 branch probability (only enabled with branch probabilities)
-  # BB record for BB_1
-   .uleb128  1                            # BB_1 BB ID
-   .uleb128  .LBB0_1-.LBB_END0_0          # BB_1 offset relative to the end of last block (BB_0).
-   .uleb128  .LBB_END0_1-.LBB0_1          # BB_1 size
-   .byte     0x40                         # BB_1 metadata (two successors)
+  # PGO data record for BB_1
    .uleb128  133                          # BB_1 basic block frequency (only when enabled)
+   .uleb128  2                            # BB_1 successors count (only enabled with branch probabilities)
    .uleb128  2                            # BB_1 successor 1 BB ID (only enabled with branch probabilities)
    .uleb128  0x11111111                   # BB_1 successor 1 branch probability (only enabled with branch probabilities)
    .uleb128  3                            # BB_1 successor 2 BB ID (only enabled with branch probabilities)
    .uleb128  0x11111111                   # BB_1 successor 2 branch probability (only enabled with branch probabilities)
-  # BB record for BB_2
-   .uleb128  2                            # BB_2 BB ID
-   .uleb128  .LBB0_2-.LBB_END1_0          # BB_2 offset relative to the end of last block (BB_1).
-   .uleb128  .LBB_END0_2-.LBB0_2          # BB_2 size
-   .byte     0x20                         # BB_2 metadata (one successor)
+  # PGO data record for BB_2
    .uleb128  18                           # BB_2 basic block frequency (only when enabled)
+   .uleb128  1                            # BB_2 successors count (only enabled with branch probabilities)
    .uleb128  3                            # BB_2 successor 1 BB ID (only enabled with branch probabilities)
    .uleb128  0xffffffff                   # BB_2 successor 1 branch probability (only enabled with branch probabilities)
-  # BB record for BB_3
-   .uleb128  3                            # BB_3 BB ID
-   .uleb128  .LBB0_3-.LBB_END0_2          # BB_3 offset relative to the end of last block (BB_2).
-   .uleb128  .LBB_END0_3-.LBB0_3          # BB_3 size
-   .byte     0x0                          # BB_3 metadata (zero successors)
+  # PGO data record for BB_3
    .uleb128  1000                         # BB_3 basic block frequency (only when enabled)
+   .uleb128  0                            # BB_3 successors count (only enabled with branch probabilities)
 
 ``SHT_LLVM_OFFLOADING`` Section (offloading data)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

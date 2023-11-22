@@ -60,55 +60,58 @@ declare i32 @__gxx_personality_v0(...)
 ; PGO-NEXT:     .byte   7		# feature
 ; CHECK-NEXT:	.quad	.Lfunc_begin0	# function address
 ; CHECK-NEXT:	.byte	6		# number of basic blocks
-; PGO-NEXT:     .byte   0               # function entry count
 ; CHECK-NEXT:   .byte	0		# BB id
 ; CHECK-NEXT:	.uleb128 .Lfunc_begin0-.Lfunc_begin0
 ; CHECK-NEXT:	.uleb128 .LBB_END0_0-.Lfunc_begin0
-; BASIC-NEXT:	.byte	8
-; PGO-NEXT:     .byte   72
-; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
-; PGO-NEXT:     .byte   1               # successor BB ID
-; PGO-NEXT:     .ascii  "\200\200\200\200\004"  # successor branch probability
-; PGO-NEXT:     .byte   3               # successor BB ID
-; PGO-NEXT:     .ascii  "\200\200\200\200\004"  # successor branch probability
+; CHECK-NEXT:	.byte	8
 ; CHECK-NEXT:   .byte	1		# BB id
 ; CHECK-NEXT:	.uleb128 .LBB0_1-.LBB_END0_0
 ; CHECK-NEXT:	.uleb128 .LBB_END0_1-.LBB0_1
-; BASIC-NEXT:	.byte	8
-; PGO-NEXT:	.byte	72
-; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
-; PGO-NEXT:     .byte   3		# successor BB ID
-; PGO-NEXT:     .ascii  "\200\360\377\377\007"  # successor branch probability
-; PGO-NEXT:     .byte   2		# successor BB ID
-; PGO-NEXT:     .ascii  "\200\020"	# successor branch probability
+; CHECK-NEXT:	.byte	8
 ; CHECK-NEXT:   .byte	3		# BB id
 ; CHECK-NEXT:	.uleb128 .LBB0_2-.LBB_END0_1
 ; CHECK-NEXT:	.uleb128 .LBB_END0_2-.LBB0_2
-; BASIC-NEXT:	.byte	8
-; PGO-NEXT:	.byte	72
-; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
-; PGO-NEXT:     .byte   5		# successor BB ID
-; PGO-NEXT:     .ascii  "\200\200\200 "	# successor branch probability
-; PGO-NEXT:     .byte   4		# successor BB ID
-; PGO-NEXT:     .ascii  "\200\200\200\340\007"	# successor branch probability
+; CHECK-NEXT:	.byte	8
 ; CHECK-NEXT:   .byte	4		# BB id
 ; CHECK-NEXT:	.uleb128 .LBB0_3-.LBB_END0_2
 ; CHECK-NEXT:	.uleb128 .LBB_END0_3-.LBB0_3
-; BASIC-NEXT:	.byte	16
-; PGO-NEXT:	.byte	80
-; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
-; PGO-NEXT:     .byte   1		# successor BB ID
-; PGO-NEXT:     .ascii	"\200\200\200\340\007"	# successor branch probability
-; PGO-NEXT:     .byte   5		# successor BB ID
-; PGO-NEXT:     .ascii  "\200\200\200 "	# successor branch probability
+; CHECK-NEXT:	.byte	16
 ; CHECK-NEXT:   .byte	5		# BB id
 ; CHECK-NEXT:	.uleb128 .LBB0_4-.LBB_END0_3
 ; CHECK-NEXT:	.uleb128 .LBB_END0_4-.LBB0_4
 ; CHECK-NEXT:	.byte	1
-; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
 ; CHECK-NEXT:   .byte	2		# BB id
 ; CHECK-NEXT:	.uleb128 .LBB0_5-.LBB_END0_4
 ; CHECK-NEXT:	.uleb128 .LBB_END0_5-.LBB0_5
 ; CHECK-NEXT:	.byte	5
-; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
 
+;; PGO Analysis Map
+; PGO-NEXT:     .byte   0               # function entry count
+; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
+; PGO-NEXT:	.byte	2		# basic block successor count
+; PGO-NEXT:     .byte   1               # successor BB ID
+; PGO-NEXT:     .ascii  "\200\200\200\200\004"  # successor branch probability
+; PGO-NEXT:     .byte   3               # successor BB ID
+; PGO-NEXT:     .ascii  "\200\200\200\200\004"  # successor branch probability
+; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
+; PGO-NEXT:	.byte	2		# basic block successor count
+; PGO-NEXT:     .byte   3		# successor BB ID
+; PGO-NEXT:     .ascii  "\200\360\377\377\007"  # successor branch probability
+; PGO-NEXT:     .byte   2		# successor BB ID
+; PGO-NEXT:     .ascii  "\200\020"	# successor branch probability
+; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
+; PGO-NEXT:	.byte	2		# basic block successor count
+; PGO-NEXT:     .byte   5		# successor BB ID
+; PGO-NEXT:     .ascii  "\200\200\200 "	# successor branch probability
+; PGO-NEXT:     .byte   4		# successor BB ID
+; PGO-NEXT:     .ascii  "\200\200\200\340\007"	# successor branch probability
+; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
+; PGO-NEXT:	.byte	2		# basic block successor count
+; PGO-NEXT:     .byte   1		# successor BB ID
+; PGO-NEXT:     .ascii	"\200\200\200\340\007"	# successor branch probability
+; PGO-NEXT:     .byte   5		# successor BB ID
+; PGO-NEXT:     .ascii  "\200\200\200 "	# successor branch probability
+; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
+; PGO-NEXT:	.byte	0		# basic block successor count
+; PGO-NEXT:     .{{.*}} {{.*}}          # basic block frequency
+; PGO-NEXT:	.byte	0		# basic block successor count
