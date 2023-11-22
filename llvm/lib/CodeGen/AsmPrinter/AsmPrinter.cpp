@@ -445,6 +445,7 @@ void AsmPrinter::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<MachineOptimizationRemarkEmitterPass>();
   AU.addRequired<GCModuleInfo>();
   AU.addRequired<LazyMachineBlockFrequencyInfoPass>();
+  AU.addRequired<MachineBranchProbabilityInfo>();
 }
 
 bool AsmPrinter::doInitialization(Module &M) {
@@ -1489,7 +1490,6 @@ void AsmPrinter::emitBBAddrMapSection(const MachineFunction &MF) {
       const MachineBranchProbabilityInfo *MBPI =
           PGOFeatureEnable.BrProb ? &getAnalysis<MachineBranchProbabilityInfo>()
                                   : nullptr;
-      assert(MBPI != nullptr && "expected MBPI to be present in MBFI");
       emitPGOBBData(MF, MBB, MBFI, MBPI, PGOFeatureEnable, *OutStreamer);
     } else {
       OutStreamer->emitULEB128IntValue(getBBAddrMapMetadata(MBB).encode());
