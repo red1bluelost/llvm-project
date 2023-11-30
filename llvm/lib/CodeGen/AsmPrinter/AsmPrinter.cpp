@@ -139,16 +139,18 @@ static cl::opt<std::string> BasicBlockProfileDump(
              "performed with -basic-block-sections=labels. Enabling this "
              "flag during in-process ThinLTO is not supported."));
 
-// This is a replication of object::PGOAnalysisMap::Feature but without bit
-// shifting so that it works with cl::bits
+// This is a replication of fields of object::PGOAnalysisMap::Features. It
+// should match the order of the fields so that
+// `object::PGOAnalysisMap::Features::decode(PgoAnalysisMapFeatures.getBits())`
+// succeeds.
 enum class PGOMapFeaturesEnum {
-  FuncEntryCnt,
+  FuncEntryCount,
   BBFreq,
   BrProb,
 };
 static cl::bits<PGOMapFeaturesEnum> PgoAnalysisMapFeatures(
     "pgo-analysis-map", cl::Hidden, cl::CommaSeparated,
-    cl::values(clEnumValN(PGOMapFeaturesEnum::FuncEntryCnt, "func-entry-count",
+    cl::values(clEnumValN(PGOMapFeaturesEnum::FuncEntryCount, "func-entry-count",
                           "Function Entry Count"),
                clEnumValN(PGOMapFeaturesEnum::BBFreq, "bb-freq",
                           "Basic Block Frequency"),
@@ -1386,7 +1388,8 @@ void AsmPrinter::emitBBAddrMapSection(const MachineFunction &MF) {
   uint8_t BBAddrMapVersion = OutStreamer->getContext().getBBAddrMapVersion();
   OutStreamer->emitInt8(BBAddrMapVersion);
   OutStreamer->AddComment("feature");
-  OutStreamer->emitInt8(static_cast<uint8_t>(PgoAnalysisMapFeatures.getBits()));
+  auto FeaturesBits = static_cast<uint8_t>(PgoAnalysisMapFeatures.getBits());
+  OutStreamer->emitInt8(FeaturesBits);
   OutStreamer->AddComment("function address");
   OutStreamer->emitSymbolValue(FunctionSymbol, getPointerSize());
   OutStreamer->AddComment("number of basic blocks");
@@ -1417,38 +1420,35 @@ void AsmPrinter::emitBBAddrMapSection(const MachineFunction &MF) {
     PrevMBBEndSymbol = MBB.getEndSymbol();
   }
 
-  if (PgoAnalysisMapFeatures.getBits() != 0) {
+  if (FeaturesBits != 0) {
     assert(BBAddrMapVersion >= 2 &&
            "PGOAnalysisMap only supports version 2 or later");
 
-    bool EnableFuncEntryCnt =
-        PgoAnalysisMapFeatures.isSet(PGOMapFeaturesEnum::FuncEntryCnt);
-    bool EnableBBFreq =
-        PgoAnalysisMapFeatures.isSet(PGOMapFeaturesEnum::BBFreq);
-    bool EnableBrProb =
-        PgoAnalysisMapFeatures.isSet(PGOMapFeaturesEnum::BrProb);
+    auto FeatEnable =
+        cantFail(object::PGOAnalysisMap::Features::decode(FeaturesBits));
 
-    if (EnableFuncEntryCnt) {
+    if (FeatEnable.FuncEntryCount) {
       OutStreamer->AddComment("function entry count");
       auto MaybeEntryCount = MF.getFunction().getEntryCount();
       OutStreamer->emitULEB128IntValue(
           MaybeEntryCount ? MaybeEntryCount->getCount() : 0);
     }
     const MachineBlockFrequencyInfo *MBFI =
-        EnableBBFreq
+        FeatEnable.BBFreq
             ? &getAnalysis<LazyMachineBlockFrequencyInfoPass>().getBFI()
             : nullptr;
     const MachineBranchProbabilityInfo *MBPI =
-        EnableBrProb ? &getAnalysis<MachineBranchProbabilityInfo>() : nullptr;
+        FeatEnable.BrProb ? &getAnalysis<MachineBranchProbabilityInfo>()
+                          : nullptr;
 
-    if (EnableBBFreq || EnableBrProb) {
+    if (FeatEnable.BBFreq || FeatEnable.BrProb) {
       for (const MachineBasicBlock &MBB : MF) {
-        if (EnableBBFreq) {
+        if (FeatEnable.BBFreq) {
           OutStreamer->AddComment("basic block frequency");
           OutStreamer->emitULEB128IntValue(
               MBFI->getBlockFreq(&MBB).getFrequency());
         }
-        if (EnableBrProb) {
+        if (FeatEnable.BrProb) {
           unsigned SuccCount = MBB.succ_size();
           OutStreamer->AddComment("basic block successor count");
           OutStreamer->emitULEB128IntValue(SuccCount);
